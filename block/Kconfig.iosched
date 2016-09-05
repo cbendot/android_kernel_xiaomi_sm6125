@@ -40,6 +40,32 @@ config CFQ_GROUP_IOSCHED
 	---help---
 	  Enable group IO scheduling in CFQ.
 
+config IOSCHED_BFQ
+	tristate "BFQ I/O scheduler"
+	default n
+	---help---
+	The BFQ I/O scheduler distributes bandwidth among all
+	processes according to their weights, regardless of the
+	device parameters and with any workload. It also guarantees
+	a low latency to interactive and soft real-time applications.
+	Details in Documentation/block/bfq-iosched.txt
+
+config BFQ_GROUP_IOSCHED
+	bool "BFQ hierarchical scheduling support"
+	depends on IOSCHED_BFQ && BLK_CGROUP
+	default n
+	---help---
+
+	Enable hierarchical scheduling in BFQ, using the blkio
+	(cgroups-v1) or io (cgroups-v2) controller.
+
+config IOSCHED_ZEN
+	tristate "Zen I/O scheduler"
+	default y
+	---help---
+	  FCFS, dispatches are back-inserted, deadlines ensure fairness.
+	  Should work best with devices where there is no travel delay.
+
 choice
 
 	prompt "Default I/O scheduler"
@@ -56,6 +82,9 @@ choice
 
 	config DEFAULT_NOOP
 		bool "No-op"
+		
+	config DEFAULT_ZEN
+		bool "ZEN" if IOSCHED_ZEN=y
 
 endchoice
 
@@ -64,6 +93,7 @@ config DEFAULT_IOSCHED
 	default "deadline" if DEFAULT_DEADLINE
 	default "cfq" if DEFAULT_CFQ
 	default "noop" if DEFAULT_NOOP
+	default "zen" if DEFAULT_ZEN
 
 config MQ_IOSCHED_DEADLINE
 	tristate "MQ deadline I/O scheduler"
