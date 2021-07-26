@@ -14,7 +14,12 @@
  *
  */
 
+#include <linux/debugfs.h>
+#include <linux/dma-mapping.h>
+#include <linux/err.h>
+#include <linux/fs.h>
 #include <linux/list.h>
+#include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/swap.h>
 #include <linux/sched/signal.h>
@@ -32,11 +37,7 @@ static void *ion_page_pool_alloc_pages(struct ion_page_pool *pool)
 {
 	struct page *page = alloc_pages(pool->gfp_mask, pool->order);
 
-static inline struct page *ion_page_pool_alloc_pages(struct ion_page_pool *pool)
-{
-	if (fatal_signal_pending(current))
-		return NULL;
-	return alloc_pages(pool->gfp_mask, pool->order);
+	return page;
 }
 
 static void ion_page_pool_free_pages(struct ion_page_pool *pool,
@@ -135,7 +136,11 @@ struct page *ion_page_pool_alloc_pool_only(struct ion_page_pool *pool)
 
 void ion_page_pool_free(struct ion_page_pool *pool, struct page *page)
 {
-	ion_page_pool_add(pool, page);
+	int ret;
+
+	ret = ion_page_pool_add(pool, page);
+	if (ret)
+		ion_page_pool_free_pages(pool, page);
 }
 
 void ion_page_pool_free_immediate(struct ion_page_pool *pool, struct page *page)
@@ -222,3 +227,9 @@ void ion_page_pool_destroy(struct ion_page_pool *pool)
 {
 	kfree(pool);
 }
+
+static int __init ion_page_pool_init(void)
+{
+	return 0;
+}
+device_initcall(ion_page_pool_init);
