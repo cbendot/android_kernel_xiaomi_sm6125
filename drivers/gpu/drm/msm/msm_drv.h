@@ -691,6 +691,8 @@ struct msm_drm_private {
 
 	/* update the flag when msm driver receives shutdown notification */
 	bool shutdown_in_progress;
+
+	struct msm_idle idle;
 };
 
 /* get struct msm_kms * from drm_device * */
