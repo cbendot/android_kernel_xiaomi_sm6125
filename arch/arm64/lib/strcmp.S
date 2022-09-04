@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Copyright (c) 2012-2022, Arm Limited.
  *
@@ -8,12 +9,13 @@
 #include <linux/linkage.h>
 #include <asm/assembler.h>
 
-/*
- * compare two strings
+/* Assumptions:
  *
  * ARMv8-a, AArch64.
  * MTE compatible.
  */
+
+#define L(label) .L ## label
 
 #define REP8_01 0x0101010101010101
 #define REP8_7f 0x7f7f7f7f7f7f7f7f
@@ -180,61 +182,8 @@ L(tail):
 	orr	syndrome, diff, has_nul
 	b	L(end)
 
-	/*The second part process*/
-	ldr	data1, [src1], #8
-	ldr	data2, [src2], #8
-	sub	tmp1, data1, zeroones
-	orr	tmp2, data1, #REP8_7f
-	bic	has_nul, tmp1, tmp2
-	eor	diff, data1, data2  /* Non-zero if differences found.  */
-	orr	syndrome, diff, has_nul
-	cbz	syndrome, .Lloopcmp_proc
-
-.Lcal_cmpresult:
-	/*
-	* reversed the byte-order as big-endian,then CLZ can find the most
-	* significant zero bits.
-	*/
-CPU_LE( rev	syndrome, syndrome )
-CPU_LE( rev	data1, data1 )
-CPU_LE( rev	data2, data2 )
-
-	/*
-	* For big-endian we cannot use the trick with the syndrome value
-	* as carry-propagation can corrupt the upper bits if the trailing
-	* bytes in the string contain 0x01.
-	* However, if there is no NUL byte in the dword, we can generate
-	* the result directly.  We ca not just subtract the bytes as the
-	* MSB might be significant.
-	*/
-CPU_BE( cbnz	has_nul, 1f )
-CPU_BE( cmp	data1, data2 )
-CPU_BE( cset	result, ne )
-CPU_BE( cneg	result, result, lo )
-CPU_BE( ret )
-CPU_BE( 1: )
-	/*Re-compute the NUL-byte detection, using a byte-reversed value. */
-CPU_BE(	rev	tmp3, data1 )
-CPU_BE(	sub	tmp1, tmp3, zeroones )
-CPU_BE(	orr	tmp2, tmp3, #REP8_7f )
-CPU_BE(	bic	has_nul, tmp1, tmp2 )
-CPU_BE(	rev	has_nul, has_nul )
-CPU_BE(	orr	syndrome, diff, has_nul )
-
-	clz	pos, syndrome
-	/*
-	* The MS-non-zero bit of the syndrome marks either the first bit
-	* that is different, or the top bit of the first zero byte.
-	* Shifting left now will bring the critical information into the
-	* top bits.
-	*/
-	lsl	data1, data1, pos
-	lsl	data2, data2, pos
-	/*
-	* But we need to zero-extend (char is unsigned) the value and then
-	* perform a signed 32-bit subtraction.
-	*/
-	lsr	data1, data1, #56
-	sub	result, data1, data2, lsr #56
+L(done):
+	sub	result, data1, data2
 	ret
-ENDPIPROC(strcmp)
+
+SYM_FUNC_END_PI(strcmp)

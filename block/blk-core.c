@@ -871,7 +871,7 @@ int blk_queue_enter(struct request_queue *q, unsigned int op)
 		 */
 		smp_rmb();
 
-		wait_event(q->mq_freeze_wq,
+		wait_event_interruptible(q->mq_freeze_wq,
 			   (!atomic_read(&q->mq_freeze_depth) &&
 			   ((op & REQ_PREEMPT) ||
 			    !blk_queue_preempt_only(q))) ||
@@ -1471,7 +1471,11 @@ retry:
 	trace_block_sleeprq(q, bio, op);
 
 	spin_unlock_irq(q->queue_lock);
-	io_schedule();
+	/*
+	 * FIXME: this should be io_schedule().  The timeout is there as a
+	 * workaround for some io timeout problems.
+	 */
+	io_schedule_timeout(5*HZ);
 
 	/*
 	 * After sleeping, we become a "batching" process and will be able
@@ -1634,8 +1638,12 @@ EXPORT_SYMBOL_GPL(part_round_stats);
 #ifdef CONFIG_PM
 static void blk_pm_put_request(struct request *rq)
 {
-	if (rq->q->dev && !(rq->rq_flags & RQF_PM) && !--rq->q->nr_pending)
-		pm_runtime_mark_last_busy(rq->q->dev);
+	if (rq->q->dev && !(rq->rq_flags & RQF_PM) &&
+	    (rq->rq_flags & RQF_PM_ADDED)) {
+		rq->rq_flags &= ~RQF_PM_ADDED;
+		if (!--rq->q->nr_pending)
+			pm_runtime_mark_last_busy(rq->q->dev);
+	}
 }
 #else
 static inline void blk_pm_put_request(struct request *rq) {}
@@ -3770,7 +3778,8 @@ int __init blk_dev_init(void)
 
 	/* used for unplugging and affects IO latency/throughput - HIGHPRI */
 	kblockd_workqueue = alloc_workqueue("kblockd",
-					    WQ_MEM_RECLAIM | WQ_HIGHPRI, 0);
+					    WQ_MEM_RECLAIM | WQ_HIGHPRI |
+					    WQ_POWER_EFFICIENT, 0);
 	if (!kblockd_workqueue)
 		panic("Failed to create kblockd\n");
 

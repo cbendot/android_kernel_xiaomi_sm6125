@@ -1,4 +1,5 @@
 /* Copyright (c) 2002,2007-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -91,6 +92,8 @@ static void adreno_ringbuffer_wptr(struct adreno_device *adreno_dev,
 {
 	struct adreno_gpudev *gpudev = ADRENO_GPU_DEVICE(adreno_dev);
 	unsigned long flags;
+	bool write = false;
+	unsigned int val;
 	int ret = 0;
 
 	spin_lock_irqsave(&rb->preempt_lock, flags);
@@ -114,13 +117,8 @@ static void adreno_ringbuffer_wptr(struct adreno_device *adreno_dev,
 			if (gpudev->gpu_keepalive)
 				gpudev->gpu_keepalive(adreno_dev, true);
 
-			/*
-			 * Ensure the write posted after a possible
-			 * GMU wakeup (write could have dropped during wakeup)
-			 */
-			ret = adreno_gmu_fenced_write(adreno_dev,
-				ADRENO_REG_CP_RB_WPTR, rb->_wptr,
-				FENCE_STATUS_WRITEDROPPED0_MASK);
+			write = true;
+			val = rb->_wptr;
 			rb->skip_inline_wptr = false;
 			if (gpudev->gpu_keepalive)
 				gpudev->gpu_keepalive(adreno_dev, false);
@@ -138,6 +136,14 @@ static void adreno_ringbuffer_wptr(struct adreno_device *adreno_dev,
 
 	rb->wptr = rb->_wptr;
 	spin_unlock_irqrestore(&rb->preempt_lock, flags);
+
+	/*
+	 * Ensure the write posted after a possible
+	 * GMU wakeup (write could have dropped during wakeup)
+	 */
+	if (write)
+		ret = adreno_gmu_fenced_write(adreno_dev, ADRENO_REG_CP_RB_WPTR,
+			val, FENCE_STATUS_WRITEDROPPED0_MASK);
 
 	if (ret) {
 		/* If WPTR update fails, set the fault and trigger recovery */
@@ -591,7 +597,7 @@ adreno_ringbuffer_addcmds(struct adreno_ringbuffer *rb,
 
 	if (gpudev->preemption_pre_ibsubmit &&
 			adreno_is_preemption_enabled(adreno_dev))
-		total_sizedwords += 27;
+		total_sizedwords += 31;
 
 	if (gpudev->preemption_post_ibsubmit &&
 			adreno_is_preemption_enabled(adreno_dev))
@@ -971,6 +977,7 @@ int adreno_ringbuffer_submitcmd(struct adreno_device *adreno_dev,
 	struct kgsl_memobj_node *ib;
 	unsigned int numibs = 0;
 	unsigned int *link;
+	unsigned int link_onstack[SZ_256] __aligned(8);
 	unsigned int *cmds;
 	struct kgsl_context *context;
 	struct adreno_context *drawctxt;
@@ -1105,10 +1112,15 @@ int adreno_ringbuffer_submitcmd(struct adreno_device *adreno_dev,
 	if (gpudev->ccu_invalidate)
 		dwords += 4;
 
-	link = kcalloc(dwords, sizeof(unsigned int), GFP_KERNEL);
-	if (!link) {
-		ret = -ENOMEM;
-		goto done;
+	if (likely(dwords <= ARRAY_SIZE(link_onstack))) {
+		memset(link_onstack, 0, dwords * sizeof(unsigned int));
+		link = link_onstack;
+	} else {
+		link = kcalloc(dwords, sizeof(unsigned int), GFP_KERNEL);
+		if (!link) {
+			ret = -ENOMEM;
+			goto done;
+		}
 	}
 
 	cmds = link;
@@ -1236,7 +1248,8 @@ done:
 	trace_kgsl_issueibcmds(device, context->id, numibs, drawobj->timestamp,
 			drawobj->flags, ret, drawctxt->type);
 
-	kfree(link);
+	if (unlikely(link != link_onstack))
+		kfree(link);
 	return ret;
 }
 

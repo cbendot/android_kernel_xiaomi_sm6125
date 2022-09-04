@@ -61,6 +61,7 @@
 #include <linux/ipc_logging.h>
 #include <asm/irq.h>
 #include <linux/kthread.h>
+#include <uapi/linux/sched.h>
 
 #include <linux/msm-sps.h>
 #include <linux/platform_data/msm_serial_hs.h>
@@ -2097,9 +2098,6 @@ static void msm_hs_config_port(struct uart_port *uport, int cfg_flags)
 /*  Handle CTS changes (Called from interrupt handler) */
 static void msm_hs_handle_delta_cts_locked(struct uart_port *uport)
 {
-	struct msm_hs_port *msm_uport = UARTDM_TO_MSM(uport);
-
-	msm_hs_resource_vote(msm_uport);
 	/* clear interrupt */
 	msm_hs_write(uport, UART_DM_CR, RESET_CTS);
 	/* Calling CLOCK API. Hence mb() requires here. */
@@ -2108,7 +2106,6 @@ static void msm_hs_handle_delta_cts_locked(struct uart_port *uport)
 
 	/* clear the IOCTL TIOCMIWAIT if called */
 	wake_up_interruptible(&uport->state->port.delta_msr_wait);
-	msm_hs_resource_unvote(msm_uport);
 }
 
 static irqreturn_t msm_hs_isr(int irq, void *dev)
@@ -2759,6 +2756,7 @@ static int uartdm_init_port(struct uart_port *uport)
 	struct msm_hs_port *msm_uport = UARTDM_TO_MSM(uport);
 	struct msm_hs_tx *tx = &msm_uport->tx;
 	struct msm_hs_rx *rx = &msm_uport->rx;
+	struct sched_param param = { .sched_priority = 1 };
 
 	init_waitqueue_head(&rx->wait);
 	init_waitqueue_head(&tx->wait);
@@ -2773,6 +2771,8 @@ static int uartdm_init_port(struct uart_port *uport)
 		MSM_HS_ERR("%s(): error creating task\n", __func__);
 		goto exit_lh_init;
 	}
+	sched_setscheduler(rx->task, SCHED_FIFO, &param);
+
 	kthread_init_work(&rx->kwork, msm_serial_hs_rx_work);
 
 	kthread_init_worker(&tx->kworker);
@@ -2782,6 +2782,7 @@ static int uartdm_init_port(struct uart_port *uport)
 		MSM_HS_ERR("%s(): error creating task\n", __func__);
 		goto exit_lh_init;
 	}
+	sched_setscheduler(tx->task, SCHED_FIFO, &param);
 
 	kthread_init_work(&tx->kwork, msm_serial_hs_tx_work);
 
@@ -3301,6 +3302,7 @@ static void  msm_serial_hs_rt_init(struct uart_port *uport)
 	msm_uport->pm_state = MSM_HS_PM_SUSPENDED;
 	mutex_unlock(&msm_uport->mtx);
 	pm_runtime_enable(uport->dev);
+	tty_port_set_policy(&uport->state->port, SCHED_FIFO, 1);
 }
 
 static int msm_hs_runtime_suspend(struct device *dev)

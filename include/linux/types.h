@@ -4,6 +4,7 @@
 
 #define __EXPORTED_HEADERS__
 #include <uapi/linux/types.h>
+#include <generated/autoconf.h>
 
 #ifndef __ASSEMBLY__
 
@@ -231,6 +232,11 @@ struct callback_head {
 
 typedef void (*rcu_callback_t)(struct rcu_head *head);
 typedef void (*call_rcu_func_t)(struct rcu_head *head, rcu_callback_t func);
+
+typedef void (*swap_func_t)(void *a, void *b, int size);
+
+typedef int (*cmp_r_func_t)(const void *a, const void *b, const void *priv);
+typedef int (*cmp_func_t)(const void *a, const void *b);
 
 #endif /*  __ASSEMBLY__ */
 #endif /* _LINUX_TYPES_H */

@@ -66,7 +66,8 @@ static noinline int __cpuidle cpu_idle_poll(void)
 	local_irq_enable();
 	stop_critical_timings();
 	while (!tif_need_resched() &&
-		(cpu_idle_force_poll || tick_check_broadcast_expired()))
+		(cpu_idle_force_poll || tick_check_broadcast_expired() ||
+		is_reserved(smp_processor_id())))
 		cpu_relax();
 	start_critical_timings();
 	trace_cpu_idle_rcuidle(PWR_EVENT_EXIT, smp_processor_id());
@@ -229,6 +230,7 @@ exit_idle:
  */
 static void do_idle(void)
 {
+	int cpu = smp_processor_id();
 	/*
 	 * If the arch has a polling bit, we maintain an invariant:
 	 *
@@ -239,20 +241,20 @@ static void do_idle(void)
 	 */
 
 	__current_set_polling();
-	quiet_vmstat();
 	tick_nohz_idle_enter();
 
 	while (!need_resched()) {
 		check_pgt_cache();
 		rmb();
 
-		if (cpu_is_offline(smp_processor_id())) {
-			tick_nohz_idle_stop_tick_protected();
+		local_irq_disable();
+
+                if (cpu_is_offline(cpu)) {
+			tick_nohz_idle_stop_tick();
 			cpuhp_report_idle_dead();
 			arch_cpu_idle_dead();
 		}
 
-		local_irq_disable();
 		arch_cpu_idle_enter();
 
 		/*
@@ -261,7 +263,8 @@ static void do_idle(void)
 		 * broadcast device expired for us, we don't want to go deep
 		 * idle as we know that the IPI is going to arrive right away.
 		 */
-		if (cpu_idle_force_poll || tick_check_broadcast_expired()) {
+		if (cpu_idle_force_poll || tick_check_broadcast_expired() ||
+				is_reserved(smp_processor_id())) {
 			tick_nohz_idle_restart_tick();
 			cpu_idle_poll();
 		} else {
@@ -288,6 +291,11 @@ static void do_idle(void)
 	 */
 	smp_mb__after_atomic();
 
+	/*
+	 * RCU relies on this call to be done outside of an RCU read-side
+	 * critical section.
+	 */
+	flush_smp_call_function_from_idle();
 	sched_ttwu_pending();
 	schedule_idle();
 

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2020, 2021 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -23,6 +23,13 @@
 #include "msm_vidc_debug.h"
 #include "msm_vidc_clocks.h"
 #include "msm_cvp.h"
+
+static struct kmem_cache *kmem_buf_pool;
+
+void __init init_vidc_kmem_buf_pool(void)
+{
+	kmem_buf_pool = KMEM_CACHE(msm_vidc_buffer, SLAB_HWCACHE_ALIGN | SLAB_PANIC);
+}
 
 #define MSM_VIDC_QBUF_BATCH_TIMEOUT 300
 #define IS_ALREADY_IN_STATE(__p, __d) (\
@@ -2473,6 +2480,7 @@ static bool is_eos_buffer(struct msm_vidc_inst *inst, u32 device_addr)
 	list_for_each_entry_safe(temp, next, &inst->eosbufs.list, list) {
 		if (temp->smem.device_addr == device_addr) {
 			found = true;
+			temp->is_queued = 0;
 			list_del(&temp->list);
 			msm_comm_smem_free(inst, &temp->smem);
 			kfree(temp);
@@ -4098,6 +4106,9 @@ int msm_vidc_send_pending_eos_buffers(struct msm_vidc_inst *inst)
 
 	mutex_lock(&inst->eosbufs.lock);
 	list_for_each_entry_safe(binfo, temp, &inst->eosbufs.list, list) {
+		if (binfo->is_queued)
+			continue;
+
 		data.alloc_len = binfo->smem.size;
 		data.device_addr = binfo->smem.device_addr;
 		data.buffer_type = HAL_BUFFER_INPUT;
@@ -4113,6 +4124,7 @@ int msm_vidc_send_pending_eos_buffers(struct msm_vidc_inst *inst)
 
 		rc = call_hfi_op(hdev, session_etb, inst->session,
 				&data);
+		binfo->is_queued = 1;
 	}
 	mutex_unlock(&inst->eosbufs.lock);
 
@@ -4192,7 +4204,6 @@ int msm_vidc_comm_cmd(void *instance, union msm_v4l2_cmd *cmd)
 		mutex_lock(&inst->eosbufs.lock);
 		list_add_tail(&binfo->list, &inst->eosbufs.list);
 		mutex_unlock(&inst->eosbufs.lock);
-
 		rc = msm_vidc_send_pending_eos_buffers(inst);
 		if (rc) {
 			dprintk(VIDC_ERR,
@@ -6673,7 +6684,7 @@ struct msm_vidc_buffer *msm_comm_get_vidc_buffer(struct msm_vidc_inst *inst,
 
 	if (!found) {
 		/* this is new vb2_buffer */
-		mbuf = kzalloc(sizeof(struct msm_vidc_buffer), GFP_KERNEL);
+		mbuf = kmem_cache_zalloc(kmem_buf_pool, GFP_KERNEL);
 		if (!mbuf) {
 			dprintk(VIDC_ERR, "%s: alloc msm_vidc_buffer failed\n",
 				__func__);
@@ -6961,7 +6972,7 @@ static void kref_free_mbuf(struct kref *kref)
 	struct msm_vidc_buffer *mbuf = container_of(kref,
 			struct msm_vidc_buffer, kref);
 
-	kfree(mbuf);
+	kmem_cache_free(kmem_buf_pool, mbuf);
 }
 
 void kref_put_mbuf(struct msm_vidc_buffer *mbuf)

@@ -1413,6 +1413,9 @@ static void __queue_work(int cpu, struct workqueue_struct *wq,
 	if (unlikely(wq->flags & __WQ_DRAINING) &&
 	    WARN_ON_ONCE(!is_chained_work(wq)))
 		return;
+
+	if (req_cpu == WORK_CPU_UNBOUND)
+		cpu = wq_select_unbound_cpu(0);
 retry:
 	/* pwq which will be used unless @work is executing elsewhere */
 	if (wq->flags & WQ_UNBOUND) {
@@ -1566,7 +1569,7 @@ static void __queue_delayed_work(int cpu, struct workqueue_struct *wq,
 	if (unlikely(cpu != WORK_CPU_UNBOUND))
 		add_timer_on(timer, cpu);
 	else
-		add_timer(timer);
+		add_timer_on(timer, 0);
 }
 
 /**
@@ -1637,6 +1640,40 @@ bool mod_delayed_work_on(int cpu, struct workqueue_struct *wq,
 	return ret;
 }
 EXPORT_SYMBOL_GPL(mod_delayed_work_on);
+
+static void rcu_work_rcufn(struct rcu_head *rcu)
+{
+	struct rcu_work *rwork = container_of(rcu, struct rcu_work, rcu);
+
+	/* read the comment in __queue_work() */
+	local_irq_disable();
+	__queue_work(WORK_CPU_UNBOUND, rwork->wq, &rwork->work);
+	local_irq_enable();
+}
+
+/**
+ * queue_rcu_work - queue work after a RCU grace period
+ * @wq: workqueue to use
+ * @rwork: work to queue
+ *
+ * Return: %false if @rwork was already pending, %true otherwise.  Note
+ * that a full RCU grace period is guaranteed only after a %true return.
+ * While @rwork is guarnateed to be executed after a %false return, the
+ * execution may happen before a full RCU grace period has passed.
+ */
+bool queue_rcu_work(struct workqueue_struct *wq, struct rcu_work *rwork)
+{
+	struct work_struct *work = &rwork->work;
+
+	if (!test_and_set_bit(WORK_STRUCT_PENDING_BIT, work_data_bits(work))) {
+		rwork->wq = wq;
+		call_rcu(&rwork->rcu, rcu_work_rcufn);
+		return true;
+	}
+
+	return false;
+}
+EXPORT_SYMBOL(queue_rcu_work);
 
 /**
  * worker_enter_idle - enter idle state
@@ -1729,18 +1766,17 @@ static void worker_attach_to_pool(struct worker *worker,
 	mutex_lock(&pool->attach_mutex);
 
 	/*
-	 * set_cpus_allowed_ptr() will fail if the cpumask doesn't have any
-	 * online CPUs.  It'll be re-applied when any of the CPUs come up.
-	 */
-	set_cpus_allowed_ptr(worker->task, pool->attrs->cpumask);
-
-	/*
 	 * The pool->attach_mutex ensures %POOL_DISASSOCIATED remains
 	 * stable across this function.  See the comments above the
 	 * flag definition for details.
 	 */
 	if (pool->flags & POOL_DISASSOCIATED)
 		worker->flags |= WORKER_UNBOUND;
+	else
+		kthread_set_per_cpu(worker->task, pool->cpu);
+
+	if (worker->rescue_wq)
+		set_cpus_allowed_ptr(worker->task, pool->attrs->cpumask);
 
 	list_add_tail(&worker->node, &pool->workers);
 
@@ -1762,6 +1798,7 @@ static void worker_detach_from_pool(struct worker *worker,
 	struct completion *detach_completion = NULL;
 
 	mutex_lock(&pool->attach_mutex);
+	kthread_set_per_cpu(worker->task, -1);
 	list_del(&worker->node);
 	if (list_empty(&pool->workers))
 		detach_completion = pool->detach_completion;
@@ -3057,6 +3094,26 @@ bool flush_delayed_work(struct delayed_work *dwork)
 }
 EXPORT_SYMBOL(flush_delayed_work);
 
+/**
+ * flush_rcu_work - wait for a rwork to finish executing the last queueing
+ * @rwork: the rcu work to flush
+ *
+ * Return:
+ * %true if flush_rcu_work() waited for the work to finish execution,
+ * %false if it was already idle.
+ */
+bool flush_rcu_work(struct rcu_work *rwork)
+{
+	if (test_bit(WORK_STRUCT_PENDING_BIT, work_data_bits(&rwork->work))) {
+		rcu_barrier();
+		flush_work(&rwork->work);
+		return true;
+	} else {
+		return flush_work(&rwork->work);
+	}
+}
+EXPORT_SYMBOL(flush_rcu_work);
+
 static bool __cancel_work(struct work_struct *work, bool is_dwork)
 {
 	unsigned long flags;
@@ -3208,6 +3265,7 @@ void free_workqueue_attrs(struct workqueue_attrs *attrs)
 struct workqueue_attrs *alloc_workqueue_attrs(gfp_t gfp_mask)
 {
 	struct workqueue_attrs *attrs;
+	const unsigned long allowed_cpus = 0xf;
 
 	attrs = kzalloc(sizeof(*attrs), gfp_mask);
 	if (!attrs)
@@ -3215,7 +3273,7 @@ struct workqueue_attrs *alloc_workqueue_attrs(gfp_t gfp_mask)
 	if (!alloc_cpumask_var(&attrs->cpumask, gfp_mask))
 		goto fail;
 
-	cpumask_copy(attrs->cpumask, cpu_possible_mask);
+	cpumask_copy(attrs->cpumask, to_cpumask(&allowed_cpus));
 	return attrs;
 fail:
 	free_workqueue_attrs(attrs);
@@ -4321,7 +4379,7 @@ bool workqueue_congested(int cpu, struct workqueue_struct *wq)
 	rcu_read_lock_sched();
 
 	if (cpu == WORK_CPU_UNBOUND)
-		cpu = smp_processor_id();
+		cpu = 0;
 
 	if (!(wq->flags & WQ_UNBOUND))
 		pwq = per_cpu_ptr(wq->cpu_pwqs, cpu);
@@ -4652,8 +4710,10 @@ static void unbind_workers(int cpu)
 		 * before the last CPU down must be on the cpu.  After
 		 * this, they may become diasporas.
 		 */
-		for_each_pool_worker(worker, pool)
+		for_each_pool_worker(worker, pool) {
+			kthread_set_per_cpu(worker->task, -1);
 			worker->flags |= WORKER_UNBOUND;
+		}
 
 		pool->flags |= POOL_DISASSOCIATED;
 
@@ -4708,9 +4768,11 @@ static void rebind_workers(struct worker_pool *pool)
 	 * of all workers first and then clear UNBOUND.  As we're called
 	 * from CPU_ONLINE, the following shouldn't fail.
 	 */
-	for_each_pool_worker(worker, pool)
+	for_each_pool_worker(worker, pool) {
+		kthread_set_per_cpu(worker->task, pool->cpu);
 		WARN_ON_ONCE(set_cpus_allowed_ptr(worker->task,
 						  pool->attrs->cpumask) < 0);
+	}
 
 	spin_lock_irq(&pool->lock);
 
@@ -5686,7 +5748,7 @@ int __init workqueue_init_early(void)
 	WARN_ON(__alignof__(struct pool_workqueue) < __alignof__(long long));
 
 	BUG_ON(!alloc_cpumask_var(&wq_unbound_cpumask, GFP_KERNEL));
-	cpumask_copy(wq_unbound_cpumask, cpu_possible_mask);
+	cpumask_copy(wq_unbound_cpumask, cpu_lp_mask);
 
 	pwq_cache = KMEM_CACHE(pool_workqueue, SLAB_PANIC);
 

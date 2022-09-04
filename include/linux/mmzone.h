@@ -444,7 +444,7 @@ struct zone {
 	 * adjust_managed_page_count() should be used instead of directly
 	 * touching zone->managed_pages and totalram_pages.
 	 */
-	unsigned long		managed_pages;
+	atomic_long_t		managed_pages;
 	unsigned long		spanned_pages;
 	unsigned long		present_pages;
 
@@ -532,6 +532,11 @@ enum pgdat_flags {
 					 */
 	PGDAT_RECLAIM_LOCKED,		/* prevents concurrent reclaim */
 };
+
+static inline unsigned long zone_managed_pages(struct zone *zone)
+{
+	return (unsigned long)atomic_long_read(&zone->managed_pages);
+}
 
 static inline unsigned long zone_end_pfn(const struct zone *zone)
 {
@@ -672,6 +677,9 @@ typedef struct pglist_data {
 
 	int kswapd_failures;		/* Number of 'reclaimed == 0' runs */
 
+	wait_queue_head_t kshrinkd_wait;
+	struct task_struct *kshrinkd;
+
 #ifdef CONFIG_COMPACTION
 	int kcompactd_max_order;
 	enum zone_type kcompactd_classzone_idx;
@@ -724,12 +732,6 @@ typedef struct pglist_data {
 
 	/* Fields commonly accessed by the page reclaim scanner */
 	struct lruvec		lruvec;
-
-	/*
-	 * The target ratio of ACTIVE_ANON to INACTIVE_ANON pages on
-	 * this node's LRU.  Maintained by the pageout code.
-	 */
-	unsigned int inactive_ratio;
 
 	unsigned long		flags;
 
@@ -793,7 +795,8 @@ static inline bool is_dev_zone(const struct zone *zone)
 #include <linux/memory_hotplug.h>
 
 void build_all_zonelists(pg_data_t *pgdat);
-void wakeup_kswapd(struct zone *zone, int order, enum zone_type classzone_idx);
+void wakeup_kswapd(struct zone *zone, gfp_t gfp_mask, int order,
+		   enum zone_type classzone_idx);
 bool __zone_watermark_ok(struct zone *z, unsigned int order, unsigned long mark,
 			 int classzone_idx, unsigned int alloc_flags,
 			 long free_pages);
@@ -851,7 +854,7 @@ unsigned long __init node_memmap_size_bytes(int, unsigned long, unsigned long);
  */
 static inline bool managed_zone(struct zone *zone)
 {
-	return zone->managed_pages;
+	return zone_managed_pages(zone);
 }
 
 /* Returns true if a zone has memory */
@@ -1306,7 +1309,7 @@ unsigned long __init node_memmap_size_bytes(int, unsigned long, unsigned long);
 
 /*
  * If it is possible to have holes within a MAX_ORDER_NR_PAGES, then we
- * need to check pfn validility within that MAX_ORDER_NR_PAGES block.
+ * need to check pfn validity within that MAX_ORDER_NR_PAGES block.
  * pfn_valid_within() should be used in this case; we optimise this away
  * when we have no holes within a MAX_ORDER_NR_PAGES block.
  */

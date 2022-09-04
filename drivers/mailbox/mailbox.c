@@ -104,7 +104,6 @@ unsigned long flags;
 		err = __msg_submit(chan);
 	} while (err == -EAGAIN);
 
-
 	if (!err && (chan->txdone_method & TXDONE_BY_POLL)) {
 		/* kick start the timer immediately to avoid delays */
 		spin_lock_irqsave(&chan->mbox->poll_hrt_lock, flags);

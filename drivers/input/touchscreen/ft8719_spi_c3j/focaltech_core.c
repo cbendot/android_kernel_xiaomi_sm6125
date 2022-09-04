@@ -703,6 +703,8 @@ static void fts_irq_read_report(void)
 	fts_prc_queue_work(ts_data);
 #endif
 
+	pm_qos_update_request(&ts_data->pm_spi_req, 100);
+
 	ret = fts_read_parse_touchdata(ts_data);
 	if (ret == 0) {
 		mutex_lock(&ts_data->report_mutex);
@@ -713,6 +715,8 @@ static void fts_irq_read_report(void)
 #endif
 		mutex_unlock(&ts_data->report_mutex);
 	}
+
+ 	pm_qos_update_request(&ts_data->pm_spi_req, PM_QOS_DEFAULT_VALUE);
 
 #if FTS_ESDCHECK_EN
 	fts_esdcheck_set_intr(0);
@@ -745,7 +749,7 @@ static int fts_irq_registration(struct fts_ts_data *ts_data)
 	struct fts_ts_platform_data *pdata = ts_data->pdata;
 
 	ts_data->irq = gpio_to_irq(pdata->irq_gpio);
-	pdata->irq_gpio_flags = IRQF_TRIGGER_FALLING | IRQF_ONESHOT;
+	pdata->irq_gpio_flags = IRQF_TRIGGER_FALLING | IRQF_ONESHOT | IRQF_PERF_CRITICAL;
 	FTS_INFO("irq:%d, flag:%x", ts_data->irq, pdata->irq_gpio_flags);
 	ret = request_threaded_irq(ts_data->irq, NULL, fts_irq_handler,
 						       pdata->irq_gpio_flags,
@@ -1458,7 +1462,7 @@ exit:
 	return ret;
 }
 
-static int fts_ts_probe_entry(struct fts_ts_data *ts_data)
+static int fts_ts_probe_entry(struct spi_device *client, struct fts_ts_data *ts_data)
 {
 	int ret = 0;
 	int pdata_size = sizeof(struct fts_ts_platform_data);
@@ -1592,6 +1596,12 @@ static int fts_ts_probe_entry(struct fts_ts_data *ts_data)
 	}
 #endif
 
+	ts_data->pm_spi_req.type = PM_QOS_REQ_AFFINE_IRQ;
+	ts_data->pm_spi_req.irq = geni_spi_get_master_irq(client);
+	irq_set_perf_affinity(ts_data->pm_spi_req.irq);
+	pm_qos_add_request(&ts_data->pm_spi_req, PM_QOS_CPU_DMA_LATENCY,
+		PM_QOS_DEFAULT_VALUE);
+
 	ret = fts_irq_registration(ts_data);
 	if (ret) {
 		FTS_ERROR("request irq failed");
@@ -1623,6 +1633,7 @@ static int fts_ts_probe_entry(struct fts_ts_data *ts_data)
 	return 0;
 
 err_irq_req:
+	pm_qos_remove_request(&ts_data->pm_spi_req);
 	fts_ts_enable_regulator(false);
 err_enable_regulator:
 	fts_ts_get_regulator(false);
@@ -1687,6 +1698,8 @@ static int fts_ts_remove_entry(struct fts_ts_data *ts_data)
 
 	free_irq(ts_data->irq, ts_data);
 	input_unregister_device(ts_data->input_dev);
+
+	pm_qos_remove_request(&ts_data->pm_spi_req);
 
 	if (ts_data->ts_workqueue)
 		destroy_workqueue(ts_data->ts_workqueue);
@@ -1842,7 +1855,7 @@ static int fts_ts_probe(struct spi_device *spi)
 	ts_data->log_level = 1;
 	spi_set_drvdata(spi, ts_data);
 
-	ret = fts_ts_probe_entry(ts_data);
+	ret = fts_ts_probe_entry(spi, ts_data);
 	if (ret) {
 		FTS_ERROR("Touch Screen(SPI BUS) driver probe fail");
 		kfree_safe(ts_data);
@@ -1916,6 +1929,7 @@ static struct spi_driver fts_ts_driver = {
 		.pm = &fts_dev_pm_ops,
 #endif
 		.of_match_table = of_match_ptr(fts_dt_match),
+		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
 	},
 	.id_table = fts_ts_id,
 };

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -381,6 +381,7 @@ static void ipa3_active_clients_log_destroy(void)
 	kfree(active_clients_table_buf);
 	active_clients_table_buf = NULL;
 	kfree(ipa3_ctx->ipa3_active_clients_logging.log_buffer[0]);
+	ipa3_ctx->ipa3_active_clients_logging.log_buffer[0] = NULL;
 	ipa3_ctx->ipa3_active_clients_logging.log_head = 0;
 	ipa3_ctx->ipa3_active_clients_logging.log_tail =
 			IPA3_ACTIVE_CLIENTS_LOG_BUFFER_SIZE_LINES - 1;
@@ -583,6 +584,15 @@ static int ipa3_send_pdn_config_msg(unsigned long usr_param)
 	buff = pdn_info;
 
 	msg_meta.msg_type = pdn_info->pdn_cfg_type;
+	/* null terminate the string */
+	pdn_info->dev_name[IPA_RESOURCE_NAME_MAX - 1] = '\0';
+
+	if ((pdn_info->pdn_cfg_type < IPA_PDN_DEFAULT_MODE_CONFIG) ||
+			(pdn_info->pdn_cfg_type >= IPA_PDN_CONFIG_EVENT_MAX)) {
+		IPAERR_RL("invalid pdn_cfg_type =%d", pdn_info->pdn_cfg_type);
+		kfree(pdn_info);
+		return -EINVAL;
+	}
 
 	IPADBG("type %d, interface name: %s, enable:%d\n", msg_meta.msg_type,
 		pdn_info->dev_name, pdn_info->enable);
@@ -6675,19 +6685,24 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 			  size_t count, loff_t *ppos)
 {
 	unsigned long missing;
-
-	char dbg_buff[32] = { 0 };
+	char *dbg_buff = NULL;
+	int ret = 0;
 
 	int i = 0;
 
-	if (sizeof(dbg_buff) < count + 1)
-		return -EFAULT;
+	if (count < 1)
+		return -EINVAL;
 
-	missing = copy_from_user(dbg_buff, buf, min(sizeof(dbg_buff), count));
+	dbg_buff = kmalloc((count + 1) * sizeof(char), GFP_KERNEL);
+	if (!dbg_buff)
+		return -ENOMEM;
+
+	missing = copy_from_user(dbg_buff, buf, count);
 
 	if (missing) {
 		IPAERR("Unable to copy data from user\n");
-		return -EFAULT;
+		ret = -EFAULT;
+		goto end;
 	}
 
 	if (count > 0)
@@ -6704,7 +6719,7 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 
 	if (i == count) {
 		IPADBG("Empty ipa_config file\n");
-		return count;
+		goto end_msg;
 	}
 
 	/* Check MHI configuration on MDM devices */
@@ -6735,7 +6750,7 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_RNDIS]);
 			IPAERR("ecm vlan(%d)\n",
 				ipa3_ctx->vlan_mode_iface[IPA_VLAN_IF_ECM]);
-			return count;
+			goto end_msg;
 		}
 
 		/* trim ending newline character if any */
@@ -6752,7 +6767,7 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 		} else if (strcmp(dbg_buff, "1")) {
 			IPAERR("got invalid string %s not loading FW\n",
 				dbg_buff);
-			return count;
+			goto end;
 		}
 		pr_info("IPA is loading with %sMHI configuration\n",
 			ipa3_ctx->ipa_config_is_mhi ? "" : "non ");
@@ -6760,12 +6775,12 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 
 	/* Prevent consequent calls from trying to load the FW again. */
 	if (ipa3_is_ready())
-		return count;
+		goto end_msg;
 
 	/* Prevent multiple calls from trying to load the FW again. */
 	if (ipa3_ctx->fw_loaded) {
 		IPAERR("not load FW again\n");
-		return count;
+		goto end_msg;
 	}
 
 	/* Schedule WQ to load ipa-fws */
@@ -6774,8 +6789,11 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 	queue_work(ipa3_ctx->transport_power_mgmt_wq,
 		&ipa3_fw_loading_work);
 
+end_msg:
 	IPADBG("Scheduled a work to load IPA FW\n");
-	return count;
+end:
+	kfree(dbg_buff);
+	return ret < 0 ? ret : count;
 }
 
 /**
@@ -7565,8 +7583,10 @@ fail_bus_reg:
 fail_init_mem_partition:
 fail_bind:
 	kfree(ipa3_ctx->ctrl);
+	ipa3_ctx->ctrl = NULL;
 fail_mem_ctrl:
 	kfree(ipa3_ctx->ipa_tz_unlock_reg);
+	ipa3_ctx->ipa_tz_unlock_reg = NULL;
 fail_tz_unlock_reg:
 	if (ipa3_ctx->logbuf)
 		ipc_log_context_destroy(ipa3_ctx->logbuf);
@@ -8006,6 +8026,7 @@ static int get_ipa_dts_configuration(struct platform_device *pdev,
 			IPAERR("failed to read register addresses\n");
 			kfree(ipa_tz_unlock_reg);
 			kfree(ipa_drv_res->ipa_tz_unlock_reg);
+			ipa_drv_res->ipa_tz_unlock_reg = NULL;
 			return -EFAULT;
 		}
 

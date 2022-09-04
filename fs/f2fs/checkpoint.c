@@ -1179,6 +1179,11 @@ static int block_operations(struct f2fs_sb_info *sbi)
 	 */
 	f2fs_flush_inline_data(sbi);
 
+	/*
+	 * Let's flush inline_data in dirty node pages.
+	 */
+	f2fs_flush_inline_data(sbi);
+
 retry_flush_quotas:
 	f2fs_lock_all(sbi);
 	if (__need_flush_quota(sbi)) {
@@ -1581,6 +1586,12 @@ int f2fs_write_checkpoint(struct f2fs_sb_info *sbi, struct cp_control *cpc)
 	}
 
 	trace_f2fs_write_checkpoint(sbi->sb, cpc->reason, "start block_ops");
+
+	/*
+	 * checkpoint will maintain the xattr consistency of dirs,
+	 * so we can remove them from tracking list when do_checkpoint
+	 */
+	f2fs_clear_xattr_set_ilist(sbi);
 
 	err = block_operations(sbi);
 	if (err)

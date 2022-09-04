@@ -319,14 +319,11 @@
 
 		CPU_COST_0: core-cost0 {
 			busy-cost-data = <
-				300000	12
-				614400	22
-				864000	39
-				1017600	54
-				1305600	83
-				1420800	102
-				1612800	130
-				1804800	172
+				864000	68
+				1017600	79
+				1305600 114
+				1612800	171
+				1804800	223
 			>;
 			idle-cost-data = <
 				10 8 6 4
@@ -335,14 +332,11 @@
 
 		CPU_COST_1: core-cost1 {
 			busy-cost-data = <
-				300000	211
-				652800	417
-				902400	722
-				1056000	991
-				1401600	1577
-				1536000	1932
-				1804800	2579
-				2016000	3391
+				902400	154
+				1401600	289
+				1536000 344
+				1804800 469
+				2016000	596
 			>;
 			idle-cost-data = <
 				100 60 40 20
@@ -351,12 +345,9 @@
 
 		CLUSTER_COST_0: cluster-cost0 {
 			busy-cost-data = <
-				300000	5
-				614400	8
 				864000	9
 				1017600	12
 				1305600	18
-				1420800	21
 				1612800	27
 				1804800	36
 			>;
@@ -367,10 +358,7 @@
 
 		CLUSTER_COST_1: cluster-cost1 {
 			busy-cost-data = <
-				300000	38
-				652800	46
 				902400	52
-				1056000	68
 				1401600	88
 				1536000	100
 				1804800	108
@@ -388,7 +376,7 @@
 	};
 
 	chosen {
-		bootargs = "rcupdate.rcu_expedited=1 rcu_nocbs=0-7";
+		bootargs = "rcupdate.rcu_expedited=1 rcupdate.rcu_normal_after_boot=1 rcu_nocbs=0-7 nosoftlockup mce=ignore_ce noirqdebug quiet";
 	};
 
 	soc: soc { };
@@ -508,7 +496,13 @@
 			no-map;
 			reg = <0 0x5e400000 0 0x1400000>;
 		};
-
+		user_contig_mem: user_contig_region {
+			compatible = "shared-dma-pool";
+			alloc-ranges = <0x0 0x00000000 0x0 0xffffffff>;
+			reusable;
+			alignment = <0x0 0x400000>;
+			size = <0x0 0x1000000>;
+		};
 		qseecom_ta_mem: qseecom_ta_region {
 			compatible = "shared-dma-pool";
 			alloc-ranges = <0 0x00000000 0 0xffffffff>;
@@ -541,13 +535,6 @@
 			size = <0 0x400000>;
 		};
 
-		dump_mem: mem_dump_region {
-			compatible = "shared-dma-pool";
-			alloc-ranges = <0 0x00000000 0 0xffffffff>;
-			reusable;
-			size = <0 0x400000>;
-		};
-
 		cont_splash_memory: cont_splash_region@5c000000 {
 			reg = <0x0 0x5c000000 0x0 0x00f00000>;
 			label = "cont_splash_region";
@@ -556,11 +543,6 @@
 		dfps_data_memory: dfps_data_region@5cf00000 {
 			reg = <0x0 0x5cf00000 0x0 0x0100000>;
 			label = "dfps_data_region";
-		};
-
-		disp_rdump_memory: disp_rdump_region@5c000000 {
-			reg = <0x0 0x5c000000 0x0 0x00f00000>;
-			label = "disp_rdump_region";
 		};
 
 		/* global autoconfigured region for contiguous allocations */
@@ -602,6 +584,7 @@
 		clock-names = "core_clk";
 
 		qcom,coresight-jtagmm-cpu = <&CPU0>;
+		status = "disabled";
 	};
 
 	jtag_mm1: jtagmm@9140000 {
@@ -613,6 +596,7 @@
 		clock-names = "core_clk";
 
 		qcom,coresight-jtagmm-cpu = <&CPU1>;
+		status = "disabled";
 	};
 
 	jtag_mm2: jtagmm@9240000 {
@@ -624,6 +608,7 @@
 		clock-names = "core_clk";
 
 		qcom,coresight-jtagmm-cpu = <&CPU2>;
+		status = "disabled";
 	};
 
 	jtag_mm3: jtagmm@9340000 {
@@ -635,6 +620,7 @@
 		clock-names = "core_clk";
 
 		qcom,coresight-jtagmm-cpu = <&CPU3>;
+		status = "disabled";
 	};
 
 	jtag_mm4: jtagmm@9440000 {
@@ -646,6 +632,7 @@
 		clock-names = "core_clk";
 
 		qcom,coresight-jtagmm-cpu = <&CPU4>;
+		status = "disabled";
 	};
 
 	jtag_mm5: jtagmm@9540000 {
@@ -657,6 +644,7 @@
 		clock-names = "core_clk";
 
 		qcom,coresight-jtagmm-cpu = <&CPU5>;
+		status = "disabled";
 	};
 
 	jtag_mm6: jtagmm@9640000 {
@@ -668,6 +656,7 @@
 		clock-names = "core_clk";
 
 		qcom,coresight-jtagmm-cpu = <&CPU6>;
+		status = "disabled";
 	};
 
 	jtag_mm7: jtagmm@9740000 {
@@ -679,6 +668,7 @@
 		clock-names = "core_clk";
 
 		qcom,coresight-jtagmm-cpu = <&CPU7>;
+		status = "disabled";
 	};
 
 	wakegic: wake-gic {
@@ -871,6 +861,19 @@
 			<0xf523000 0x1400>;
 		reg-names = "osm_pwrcl_base", "osm_perfcl_base";
 		#clock-cells = <1>;
+		qcom,cpufreq-table-0 =
+			<864000>,
+			<1017600>,
+			<1305600>,
+			<1612800>,
+			<1804800>;
+
+		qcom,cpufreq-table-4 =
+			<902400>,
+			<1401600>,
+			<1536000>,
+			<1804800>,
+			<2016000>;
 	};
 
 	clock_debugcc: qcom,cc-debug {
@@ -1016,7 +1019,7 @@
 
 		/* PM QoS */
 		qcom,pm-qos-cpu-groups = <0x0f 0xf0>;
-		qcom,pm-qos-cpu-group-latency-us = <26 26>;
+		qcom,pm-qos-cpu-group-latency-us = <43 43>;
 		qcom,pm-qos-default-cpu = <0>;
 
 		pinctrl-names = "dev-reset-assert", "dev-reset-deassert";
@@ -1447,46 +1450,6 @@
 		};
 	};
 
-	mem_dump {
-		compatible = "qcom,mem-dump";
-		memory-region = <&dump_mem>;
-
-		rpm_sw {
-			qcom,dump-size = <0x28000>;
-			qcom,dump-id = <0xea>;
-		};
-
-		pmic {
-			qcom,dump-size = <0x10000>;
-			qcom,dump-id = <0xe4>;
-		};
-
-		fcm {
-			qcom,dump-size = <0x8400>;
-			qcom,dump-id = <0xee>;
-		};
-
-		tmc_etf {
-			qcom,dump-size = <0x8000>;
-			qcom,dump-id = <0xf0>;
-		};
-
-		etr_reg {
-			qcom,dump-size = <0x1000>;
-			qcom,dump-id = <0x100>;
-		};
-
-		etf_reg {
-			qcom,dump-size = <0x1000>;
-			qcom,dump-id = <0x101>;
-		};
-
-		misc_data {
-			qcom,dump-size = <0x1000>;
-			qcom,dump-id = <0xe8>;
-		};
-	};
-
 	tcsr_mutex_block: syscon@00340000 {
 		compatible = "syscon";
 		reg = <0x00340000 0x20000>;
@@ -1533,6 +1496,7 @@
 		qcom,adsp-remoteheap-vmid = <22 37>;
 		qcom,fastrpc-adsp-audio-pdr;
 		qcom,fastrpc-adsp-sensors-pdr;
+		qcom,qos-cores = <0 1 2 3>;
 
 		qcom,msm_fastrpc_compute_cb1 {
 			compatible = "qcom,msm-fastrpc-compute-cb";
@@ -1708,7 +1672,7 @@
 
 				msm_cdsp_rm: qcom,msm_cdsp_rm {
 					compatible = "qcom,msm-cdsp-rm";
-					qcom,qos-latency-us = <44>;
+					qcom,qos-latency-us = <43>;
 					qcom,qos-maxhold-ms = <20>;
 					#cooling-cells = <2>;
 				};
@@ -2233,10 +2197,10 @@
 
 		/* PM QoS */
 		qcom,pm-qos-irq-type = "affine_irq";
-		qcom,pm-qos-irq-latency = <40 40>;
+		qcom,pm-qos-irq-latency = <43 43>;
 		qcom,pm-qos-cpu-groups = <0x0f 0xf0>;
-		qcom,pm-qos-cmdq-latency-us = <40 40>, <40 40>;
-		qcom,pm-qos-legacy-latency-us = <40 40>, <40 40>;
+		qcom,pm-qos-cmdq-latency-us = <43 43>, <43 43>;
+		qcom,pm-qos-legacy-latency-us = <43 43>, <43 43>;
 
 		qcom,scaling-lower-bus-speed-mode = "DDR52";
 
@@ -2305,9 +2269,9 @@
 
 		/* PM QoS */
 		qcom,pm-qos-irq-type = "affine_irq";
-		qcom,pm-qos-irq-latency = <40 40>;
+		qcom,pm-qos-irq-latency = <43 43>;
 		qcom,pm-qos-cpu-groups = <0x0f 0xf0>;
-		qcom,pm-qos-legacy-latency-us = <40 40>, <40 40>;
+		qcom,pm-qos-legacy-latency-us = <43 43>, <43 43>;
 
 		clocks = <&clock_gcc GCC_SDCC2_AHB_CLK>,
 			<&clock_gcc GCC_SDCC2_APPS_CLK>;
@@ -2721,7 +2685,6 @@
 #include "trinket-camera.dtsi"
 #include "msm-arm-smmu-trinket.dtsi"
 #include "trinket-qupv3.dtsi"
-#include "trinket-coresight.dtsi"
 #include "trinket-vidc.dtsi"
 #include "trinket-pm.dtsi"
 #include "trinket-gpu.dtsi"

@@ -25,6 +25,7 @@
 #include <linux/mutex.h>
 #include <linux/interrupt.h>
 #include <linux/devfreq.h>
+#include <linux/devfreq_boost.h>
 #include <linux/slab.h>
 #include <linux/of.h>
 #include <linux/of_fdt.h>
@@ -211,7 +212,7 @@ int devfreq_add_devbw(struct device *dev)
 	d->num_paths = num_paths;
 
 	p = &d->dp;
-	p->polling_ms = 50;
+	p->polling_ms = 200;
 	p->target = devbw_target;
 	p->get_dev_status = devbw_get_dev_status;
 	if (of_get_child_count(dev->of_node))
@@ -236,6 +237,9 @@ int devfreq_add_devbw(struct device *dev)
 		msm_bus_scale_unregister_client(d->bus_client);
 		return PTR_ERR(d->df);
 	}
+
+	if (!strcmp(dev_name(dev), "soc:qcom,cpu-cpu-ddr-bw"))
+		devfreq_register_boost_device(DEVFREQ_CPU_DDR_BW, d->df);
 
 	return 0;
 }

@@ -32,9 +32,6 @@ KCOV_INSTRUMENT_kcov.o := n
 KASAN_SANITIZE_kcov.o := n
 CFLAGS_kcov.o := $(call cc-option, -fno-conserve-stack -fno-stack-protector)
 
-# cond_syscall is currently not LTO compatible
-CFLAGS_sys_ni.o = $(DISABLE_LTO)
-
 # Don't instrument error handlers
 CFLAGS_cfi.o = $(DISABLE_CFI_CLANG)
 
@@ -119,7 +116,14 @@ obj-$(CONFIG_HAS_IOMEM) += memremap.o
 $(obj)/configs.o: $(obj)/config_data.h
 
 targets += config_data.gz
-$(obj)/config_data.gz: $(KCONFIG_CONFIG) FORCE
+
+ifdef CONFIG_MACH_XIAOMI_C3J
+STOCK_DEFCONFIG := arch/arm64/configs/ginkgo-stock_defconfig
+else
+STOCK_DEFCONFIG := $(KCONFIG_CONFIG)
+endif
+
+$(obj)/config_data.gz: $(STOCK_DEFCONFIG) FORCE
 	$(call if_changed,gzip)
 
       filechk_ikconfiggz = (echo "static const char kernel_config_data[] __used = MAGIC_START"; cat $< | scripts/basic/bin2c; echo "MAGIC_END;")

@@ -156,7 +156,7 @@ int calculate_normal_threshold(struct zone *zone)
 	 * 125		1024		10	16-32 GB	9
 	 */
 
-	mem = zone->managed_pages >> (27 - PAGE_SHIFT);
+	mem = zone_managed_pages(zone) >> (27 - PAGE_SHIFT);
 
 	threshold = 2 * fls(num_online_cpus()) * (1 + fls(mem));
 
@@ -1531,7 +1531,7 @@ static void zoneinfo_show_print(struct seq_file *m, pg_data_t *pgdat,
 		   high_wmark_pages(zone),
 		   zone->spanned_pages,
 		   zone->present_pages,
-		   zone->managed_pages);
+		   zone_managed_pages(zone));
 
 	seq_printf(m,
 		   "\n        protection: (%ld",
@@ -1578,11 +1578,9 @@ static void zoneinfo_show_print(struct seq_file *m, pg_data_t *pgdat,
 	}
 	seq_printf(m,
 		   "\n  node_unreclaimable:  %u"
-		   "\n  start_pfn:           %lu"
-		   "\n  node_inactive_ratio: %u",
+		   "\n  start_pfn:           %lu",
 		   pgdat->kswapd_failures >= MAX_RECLAIM_RETRIES,
-		   zone->zone_start_pfn,
-		   zone->zone_pgdat->inactive_ratio);
+		   zone->zone_start_pfn);
 	seq_putc(m, '\n');
 }
 
@@ -1718,7 +1716,7 @@ static const struct file_operations vmstat_file_operations = {
 
 #ifdef CONFIG_SMP
 static DEFINE_PER_CPU(struct delayed_work, vmstat_work);
-int sysctl_stat_interval __read_mostly = HZ;
+int sysctl_stat_interval __read_mostly = 30 * HZ;
 
 #ifdef CONFIG_PROC_FS
 static void refresh_vm_stats(struct work_struct *work)
@@ -1833,13 +1831,13 @@ static bool need_update(int cpu)
  */
 void quiet_vmstat(void)
 {
-	if (system_state != SYSTEM_RUNNING)
+	if (unlikely(system_state != SYSTEM_RUNNING))
 		return;
 
 	if (!delayed_work_pending(this_cpu_ptr(&vmstat_work)))
 		return;
 
-	if (!need_update(smp_processor_id()))
+	if (likely(!need_update(smp_processor_id())))
 		return;
 
 	/*
@@ -1876,7 +1874,7 @@ static void vmstat_shepherd(struct work_struct *w)
 	}
 	put_online_cpus();
 
-	schedule_delayed_work(&shepherd,
+	queue_delayed_work(system_power_efficient_wq, &shepherd,
 		round_jiffies_relative(sysctl_stat_interval));
 }
 
@@ -1888,7 +1886,7 @@ static void __init start_shepherd_timer(void)
 		INIT_DEFERRABLE_WORK(per_cpu_ptr(&vmstat_work, cpu),
 			vmstat_update);
 
-	schedule_delayed_work(&shepherd,
+	queue_delayed_work(system_power_efficient_wq, &shepherd,
 		round_jiffies_relative(sysctl_stat_interval));
 }
 

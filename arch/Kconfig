@@ -333,11 +333,25 @@ config HAVE_PERF_USER_STACK_DUMP
 config HAVE_ARCH_JUMP_LABEL
 	bool
 
-config HAVE_RCU_TABLE_FREE
+config HAVE_ARCH_JUMP_LABEL_RELATIVE
 	bool
 
-config HAVE_RCU_TABLE_INVALIDATE
+config MMU_GATHER_TABLE_FREE
 	bool
+
+config MMU_GATHER_RCU_TABLE_FREE
+	bool
+	select MMU_GATHER_TABLE_FREE
+
+config MMU_GATHER_PAGE_SIZE
+	bool
+
+config MMU_GATHER_NO_RANGE
+	bool
+
+config MMU_GATHER_NO_GATHER
+	bool
+	depends on MMU_GATHER_TABLE_FREE
 
 config ARCH_WANT_IRQS_OFF_ACTIVATE_MM
 	bool
@@ -618,6 +632,37 @@ config LD_DEAD_CODE_DATA_ELIMINATION
 	  sections (e.g., '.text.init'). Typically '.' in section names
 	  is used to distinguish them from label names / C identifiers.
 
+choice
+	prompt "Kernel linker"
+	default LD_BFD if !LTO_CLANG
+	default LD_GOLD if LTO_CLANG
+	help
+	  This selects the linker that will be used to link the kernel and
+	  its composite objects.
+
+	  Note that using either ld.gold or lld is required for Clang LTO.
+	  ld.bfd will not work.
+
+config LD_BFD
+	bool "bfd"
+	depends on !LTO_CLANG
+	help
+	  Use the standard ld.bfd linker from binutils, which is usually the
+	  default. This linker does not work with Clang LTO.
+
+config LD_GOLD
+	bool "gold"
+	depends on LTO_CLANG
+	help
+	  Use the alternative ld.gold linker from binutils.
+
+config LD_LLD
+	bool "lld"
+	help
+	  Use the alternative lld linker from LLVM.
+
+endchoice
+
 config LTO
 	def_bool n
 
@@ -744,6 +789,14 @@ config SHADOW_CALL_STACK_VMAP
 	  provides better stack exhaustion protection, but increases per-thread
 	  memory consumption as a full page is allocated for each shadow stack.
 
+config LLVM_POLLY
+	bool "Enable LLVM's polyhedral loop optimizer (Polly)"
+	help
+	  This option enables LLVM's polyhedral loop optimizer known as Polly.
+	  Polly is able to optimize various loops throughout the kernel for
+	  maximum cache locality. This requires an LLVM toolchain explicitly
+	  compiled with Polly support.
+
 config HAVE_ARCH_WITHIN_STACK_FRAMES
 	bool
 	help
@@ -787,6 +840,18 @@ config HAVE_IRQ_TIME_ACCOUNTING
 	help
 	  Archs need to ensure they use a high enough resolution clock to
 	  support irq time accounting and then call enable_sched_clock_irqtime().
+
+config HAVE_MOVE_PUD
+	bool
+	help
+	  Architectures that select this are able to move page tables at the
+	  PUD level. If there are only 3 page table levels, the move effectively
+	  happens at the PGD level.
+
+config HAVE_MOVE_PMD
+	bool
+	help
+	  Archs that select this are able to move page tables at the PMD level.
 
 config HAVE_ARCH_TRANSPARENT_HUGEPAGE
 	bool
@@ -1077,6 +1142,16 @@ config STRICT_MODULE_RWX
 	  and non-text memory will be made non-executable. This provides
 	  protection against certain security exploits (e.g. writing to text)
 
+config ARCH_HAS_REFCOUNT_FULL
+	bool
+	select ARCH_HAS_REFCOUNT
+	help
+	  An architecture selects this when the optimized refcount_t
+	  implementation it provides covers all the cases that
+	  CONFIG_REFCOUNT_FULL covers as well, in which case it makes no
+	  sense to even offer CONFIG_REFCOUNT_FULL as a user selectable
+	  option.
+
 config ARCH_HAS_REFCOUNT
 	bool
 	help
@@ -1090,7 +1165,7 @@ config ARCH_HAS_REFCOUNT
 	  against bugs in reference counts.
 
 config REFCOUNT_FULL
-	bool "Perform full reference count validation at the expense of speed"
+	bool "Perform full reference count validation at the expense of speed" if !ARCH_HAS_REFCOUNT_FULL
 	help
 	  Enabling this switches the refcounting infrastructure from a fast
 	  unchecked atomic_t implementation to a fully state checked

@@ -22,6 +22,7 @@
 		qcom,mdss-dsi-h-right-border = <0>;
 		qcom,mdss-dsi-v-top-border = <0>;
 		qcom,mdss-dsi-v-bottom-border = <0>;
+		qcom,mdss-dsi-panel-jitter = <0x8 0xa>;
 		qcom,mdss-dsi-bpp = <24>;
 		qcom,mdss-dsi-color-order = "rgb_swap_rgb";
 		qcom,mdss-dsi-underflow-color = <0xff>;
@@ -46,6 +47,8 @@
 		qcom,mdss-dsi-reset-sequence = <1 10>, <0 10>, <1 10>;
 		qcom,mdss-pan-physical-width-dimension = <67>;
 		qcom,mdss-pan-physical-height-dimension = <145>;
+
+		qcom,panel-allow-phy-poweroff;
 
 		qcom,mdss-dsi-display-timings {
 			timing@0 {
@@ -82,7 +85,7 @@
 					15 01 00 00 00 00 02 aa 10
 					15 01 00 00 00 00 02 ae 8a
 					15 01 00 00 00 00 02 ff 10
-					05 01 00 00 50 00 02 11 00
+					05 01 00 00 05 00 02 11 00
 					15 01 00 00 00 00 02 b0 01
 					15 01 00 00 00 00 02 35 00
 					39 01 00 00 00 00 03 68 04 03
