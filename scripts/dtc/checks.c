@@ -1614,27 +1614,6 @@ static struct check *check_table[] = {
 
 	&graph_nodes, &graph_child_address, &graph_port, &graph_endpoint,
 
-	&clocks_property,
-	&cooling_device_property,
-	&dmas_property,
-	&hwlocks_property,
-	&interrupts_extended_property,
-	&io_channels_property,
-	&iommus_property,
-	&mboxes_property,
-	&msi_parent_property,
-	&mux_controls_property,
-	&phys_property,
-	&power_domains_property,
-	&pwms_property,
-	&resets_property,
-	&sound_dais_property,
-	&thermal_sensors_property,
-
-	&deprecated_gpio_property,
-	&gpios_property,
-	&interrupts_property,
-
 	&always_fail,
 };
 
