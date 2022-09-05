@@ -297,20 +297,6 @@ int fdt_setprop(void *fdt, int nodeoffset, const char *name,
 	if (err)
 		return err;
 
-	*prop_data = prop->data;
-	return 0;
-}
-
-int fdt_setprop(void *fdt, int nodeoffset, const char *name,
-		const void *val, int len)
-{
-	void *prop_data;
-	int err;
-
-	err = fdt_setprop_placeholder(fdt, nodeoffset, name, len, &prop_data);
-	if (err)
-		return err;
-
 	if (len)
 		memcpy(prop_data, val, len);
 	return 0;
