@@ -892,9 +892,9 @@ config MSM_SUSPEND_STATS_FIRST_BUCKET
 endif # MSM_IDLE_STATS
 endif # MSM_PM || MSM_PM_LEGACY
 
-config STATE_NOTIFIER
-    bool "State Notifier"
+config STATE_NOTIFIER    
 	default y
+	bool "State Notifier"
 
 source "drivers/soc/qcom/memshare/Kconfig"
 source "drivers/soc/qcom/hab/Kconfig"
