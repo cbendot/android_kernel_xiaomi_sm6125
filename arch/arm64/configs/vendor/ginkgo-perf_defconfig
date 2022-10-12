@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/arm64 4.14.292 Kernel Configuration
+# Linux/arm64 4.14.xxx Kernel Configuration
 #
 CONFIG_LOCALVERSION="-ElasticsPerf"
 # CONFIG_LOCALVERSION_AUTO is not set
@@ -463,7 +463,7 @@ CONFIG_FB_ARMCLCD=y
 CONFIG_FB_VIRTUAL=y
 CONFIG_FB_MSM_MDSS=y
 CONFIG_FB_MSM_MDSS_KCAL_CTRL=y
-CONFIG_KLAPSE=y
+# CONFIG_KLAPSE is not set
 CONFIG_BACKLIGHT_QCOM_SPMI_WLED=y
 CONFIG_SOUND=y
 CONFIG_SND=y
